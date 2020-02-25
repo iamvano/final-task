@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -68,24 +69,33 @@ func stdInProcessing(resWriter resultWriter) {
 
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
-		url := scanner.Text()
-		if url == "exit" {
+		if err := scanner.Err(); err != nil {
+			fmt.Fprintf(os.Stderr, "reading standard input error: %s. Ignoring line", err)
+			continue
+		}
+
+		rawURL := scanner.Text()
+		if rawURL == "" {
+			continue
+		}
+		if rawURL == "exit" {
 			break
+		}
+
+		_, err := url.Parse(rawURL)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "It isn't a valid url: %s. Skipping...", rawURL)
+			continue
 		}
 
 		s.Acquire()
 
 		wg.Add(1)
 		go func() {
-			defer func() {
-				wg.Done()
-				s.Release()
-			}()
-			urlHandler(url, resWriter)
+			urlHandler(rawURL, resWriter)
+			s.Release()
+			wg.Done()
 		}()
-	}
-	if err := scanner.Err(); err != nil {
-		fmt.Fprintln(os.Stderr, "reading standard input:", err)
 	}
 
 	wg.Wait()
